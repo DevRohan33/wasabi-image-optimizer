@@ -80,12 +80,6 @@ WASABI_ENDPOINTS = {
     "ap-southeast-2": "https://s3.ap-southeast-2.wasabisys.com",
 }
 
-PRESET_BUCKETS = {
-    "towerviewerdev": "us-east-1",
-    "towerviewer":    "ap-southeast-1",
-    "other":          None,
-}
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
 
 DEFAULT_THREADS    = 12
@@ -228,7 +222,7 @@ def compress_image_bytes(data: bytes, target_bytes: int, method: int = 2,
 class WasabiCompressorApp(tk.Tk):
 
     BG       = "#000000"
-    PANEL    = "#111111"
+    PANEL    = "#161616"
     BORDER   = "#3A3535"
     ACCENT   = "#D7332B"
     ACCENT2  = "#a70122"
@@ -272,8 +266,8 @@ class WasabiCompressorApp(tk.Tk):
         tk.Label(hdr, text="▣  WASABI S3  ⟶  WEBP COMPRESSOR",
                  font=self.f_title, bg=self.BG, fg=self.ACCENT).pack(side="left")
         tk.Label(hdr, text="v2.0  fast", font=self.f_small,
-                 bg=self.BG, fg=self.MUTED).pack(side="right", anchor="s", pady=4)
-        tk.Frame(self, bg=self.BORDER, height=1).pack(fill="x", padx=24, pady=(0, 16))
+                 bg=self.BG, fg=self.SUCCESS).pack(side="right", anchor="s", pady=4)
+        tk.Frame(self, bg=self.ACCENT, height=2).pack(fill="x", padx=0, pady=(0, 16))
 
         # Credentials panel
         cred_outer = tk.Frame(self, bg=self.PANEL,
@@ -295,41 +289,9 @@ class WasabiCompressorApp(tk.Tk):
 
         # Bucket selector
         self._lbl(cred, "BUCKET NAME").grid(row=2, column=0, sticky="w", pady=3)
-
-        bucket_col = tk.Frame(cred, bg=self.PANEL)
-        bucket_col.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=3)
-
-        self.var_bucket_choice = tk.StringVar(value="towerviewerdev")
-        self.var_bucket_choice.trace_add("write", self._on_bucket_choice)
-
-        btn_frame = tk.Frame(bucket_col, bg=self.PANEL)
-        btn_frame.pack(anchor="w")
-
-        self._bucket_radio_btns = {}
-        for name in PRESET_BUCKETS:
-            label = name if name != "other" else "other…"
-            rb = tk.Radiobutton(
-                btn_frame, text=label,
-                variable=self.var_bucket_choice, value=name,
-                font=self.f_input,
-                bg=self.PANEL, fg=self.TEXT,
-                selectcolor=self.INPUT_BG,
-                activebackground=self.PANEL,
-                activeforeground=self.ACCENT,
-                indicatoron=0,
-                relief="flat", bd=0,
-                padx=10, pady=4,
-                cursor="hand2",
-            )
-            rb.pack(side="left", padx=(0, 6))
-            self._bucket_radio_btns[name] = rb
-
-        self.var_custom_bucket = tk.StringVar()
-        self.custom_bucket_frame = tk.Frame(bucket_col, bg=self.PANEL)
-        self.custom_bucket_entry = self._entry(
-            self.custom_bucket_frame, self.var_custom_bucket, width=28)
-        self._lbl(self.custom_bucket_frame, "Custom bucket name").pack(side="left", padx=(0, 6))
-        self.custom_bucket_entry.pack(side="left")
+        self.var_bucket = tk.StringVar()
+        self._entry(cred, self.var_bucket, width=36).grid(
+            row=2, column=1, sticky="ew", padx=(8, 0), pady=3)
 
         # Region
         self._lbl(cred, "REGION").grid(row=3, column=0, sticky="w", pady=3)
@@ -401,10 +363,8 @@ class WasabiCompressorApp(tk.Tk):
         cb.pack(side="left")
 
         self.btn_load = self._btn(cred_outer, "⟳  LOAD FOLDERS", self._on_load,
-                                  bg=self.ACCENT, fg="#ffffff")
+                                  bg=self.SUCCESS, fg="#000000")
         self.btn_load.pack(side="right", padx=16, pady=(0, 12))
-
-        self._on_bucket_choice()
 
         # Folder selection
         folder_outer = tk.Frame(self, bg=self.PANEL,
@@ -500,32 +460,6 @@ class WasabiCompressorApp(tk.Tk):
                  text="Images are processed in-memory — originals are never modified",
                  font=self.f_small, bg=self.BG, fg=self.MUTED).pack(pady=(0, 10))
 
-        self._refresh_radio_styles()
-
-    #Bucket helpers
-    def _on_bucket_choice(self, *_):
-        choice = self.var_bucket_choice.get()
-        auto_region = PRESET_BUCKETS.get(choice)
-        if choice == "other":
-            self.custom_bucket_frame.pack(anchor="w", pady=(6, 0))
-            self.region_combo.configure(state="readonly")
-        else:
-            self.custom_bucket_frame.pack_forget()
-            if auto_region:
-                self.var_region.set(auto_region)
-                self.region_combo.configure(state="disabled")
-        self._refresh_radio_styles()
-
-    def _refresh_radio_styles(self):
-        choice = self.var_bucket_choice.get()
-        for name, rb in self._bucket_radio_btns.items():
-            rb.configure(bg=self.ACCENT if name == choice else self.INPUT_BG,
-                         fg="#ffffff"   if name == choice else self.MUTED)
-
-    def _resolve_bucket(self) -> str:
-        choice = self.var_bucket_choice.get()
-        return self.var_custom_bucket.get().strip() if choice == "other" else choice
-
     #Widget helpers
     def _lbl(self, parent, text):
         bg = self.PANEL
@@ -598,7 +532,7 @@ class WasabiCompressorApp(tk.Tk):
             return
         access = self.var_access.get().strip()
         secret = self.var_secret.get().strip()
-        bucket = self._resolve_bucket()
+        bucket = self.var_bucket.get().strip()
         region = self.var_region.get().strip()
 
         if not all([access, secret, bucket]):
@@ -632,10 +566,11 @@ class WasabiCompressorApp(tk.Tk):
                 self.after(0, _populate)
 
             except Exception as exc:
-                def _err():
+                _msg = str(exc)
+                def _err(msg=_msg):
                     self.btn_load.configure(state="normal", text="⟳  LOAD FOLDERS")
-                    self._log(f"[ERROR] {exc}", "err")
-                    messagebox.showerror("Connection Failed", str(exc))
+                    self._log(f"[ERROR] {msg}", "err")
+                    messagebox.showerror("Connection Failed", msg)
                 self.after(0, _err)
 
         threading.Thread(target=_task, daemon=True).start()

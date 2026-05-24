@@ -169,6 +169,7 @@ class WasabiCompressorApp(tk.Tk):
         self._bucket: str = ""
         self._folders: list[str] = []
         self._running = False
+        self._stop_flag = threading.Event()
 
         self._setup_fonts()
         self._build_ui()
@@ -188,7 +189,7 @@ class WasabiCompressorApp(tk.Tk):
         hdr.pack(fill="x", padx=24, pady=(20, 4))
         tk.Label(hdr, text="▣  WASABI S3  ⟶  WEBP COMPRESSOR",
                  font=self.f_title, bg=self.BG, fg=self.ACCENT).pack(side="left")
-        tk.Label(hdr, text="v1.0", font=self.f_small,
+        tk.Label(hdr, text="v1.0  standard", font=self.f_small,
                  bg=self.BG, fg=self.MUTED).pack(side="right", anchor="s", pady=4)
         tk.Frame(self, bg=self.BORDER, height=1).pack(fill="x", padx=24, pady=(0, 16))
 
@@ -288,6 +289,11 @@ class WasabiCompressorApp(tk.Tk):
                                     bg=self.ACCENT2, fg="#ffffff")
         self.btn_submit.pack(side="right")
         self.btn_submit.configure(state="disabled")
+
+        self.btn_stop = self._btn(folder_btn_row, "■  STOP",
+                                  self._on_stop, bg=self.BORDER, fg=self.MUTED)
+        self.btn_stop.pack(side="right", padx=(0, 8))
+        self.btn_stop.configure(state="disabled")
 
         # Progress
         prog_frame = tk.Frame(self, bg=self.BG)
@@ -444,10 +450,11 @@ class WasabiCompressorApp(tk.Tk):
                 self.after(0, _populate)
 
             except Exception as exc:
-                def _err():
+                _msg = str(exc)
+                def _err(msg=_msg):
                     self.btn_load.configure(state="normal", text="⟳  LOAD FOLDERS")
-                    self._log(f"[ERROR] {exc}", "err")
-                    messagebox.showerror("Connection Failed", str(exc))
+                    self._log(f"[ERROR] {msg}", "err")
+                    messagebox.showerror("Connection Failed", msg)
                 self.after(0, _err)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -475,7 +482,9 @@ class WasabiCompressorApp(tk.Tk):
         selected_folders = [self.folder_listbox.get(i) for i in selected_indices]
 
         self._running = True
+        self._stop_flag.clear()
         self.btn_submit.configure(state="disabled", text="Processing…")
+        self.btn_stop.configure(state="normal", text="■  STOP", bg=self.WARNING, fg="#000000")
         self.btn_load.configure(state="disabled")
 
         threading.Thread(
@@ -485,6 +494,13 @@ class WasabiCompressorApp(tk.Tk):
         ).start()
 
     # ── Core processing ───────────────────────────────────────────────────
+    def _on_stop(self):
+        if not self._running:
+            return
+        self._stop_flag.set()
+        self.btn_stop.configure(state="disabled", text="Stopping…", bg=self.BORDER, fg=self.MUTED)
+        self._log("⏹  Stop requested — finishing current image then halting…", "warn")
+
     def _process_folders(self, folders, target_bytes, method):
         client       = self._client
         bucket       = self._bucket
@@ -498,6 +514,9 @@ class WasabiCompressorApp(tk.Tk):
         self._log("─" * 55, "dim")
 
         for folder_idx, folder in enumerate(folders):
+            if self._stop_flag.is_set():
+                break
+
             folder_name    = folder.rstrip("/")
             reduced_prefix = folder_name + "-reduced"
             self._log(f"\n📁  {folder_name}  →  {reduced_prefix}", "accent")
@@ -511,6 +530,9 @@ class WasabiCompressorApp(tk.Tk):
                 continue
 
             for img_idx, key in enumerate(image_keys):
+                if self._stop_flag.is_set():
+                    break
+
                 pct = ((folder_idx / len(folders)) + (img_idx / len(image_keys) / len(folders))) * 100
                 self._set_progress(pct,
                     f"Folder {folder_idx+1}/{len(folders)}  │  "
@@ -544,9 +566,13 @@ class WasabiCompressorApp(tk.Tk):
                 except Exception as exc:
                     self._log(f"   ✗  {key}  ERROR: {exc}", "err")
 
-        self._set_progress(100, "Done")
+        was_stopped = self._stop_flag.is_set()
+        self._set_progress(100 if not was_stopped else pct, "Stopped" if was_stopped else "Done")
         self._log("\n" + "═" * 55, "dim")
-        self._log("  All done!", "ok")
+        if was_stopped:
+            self._log("  Stopped by user.", "warn")
+        else:
+            self._log("  All done!", "ok")
         if total_images:
             reduction = (1 - total_new / total_orig) * 100 if total_orig else 0
             self._log(f"   Images processed : {total_images}", "ok")
@@ -557,7 +583,10 @@ class WasabiCompressorApp(tk.Tk):
 
         def _re_enable():
             self._running = False
+            self._stop_flag.clear()
             self.btn_submit.configure(state="normal", text="▶  START COMPRESSION")
+            self.btn_stop.configure(state="disabled", text="■  STOP",
+                                    bg=self.BORDER, fg=self.MUTED)
             self.btn_load.configure(state="normal")
         self.after(0, _re_enable)
 
