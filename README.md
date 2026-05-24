@@ -22,8 +22,14 @@ Built with Python and Tkinter. No cloud service or subscription required beyond 
 ---
 
 ## Screenshots
+## V1 
 
-> Add your screenshot here after first run.
+<img width="855" height="812" alt="image" src="https://github.com/user-attachments/assets/8063b5f0-5b0d-42aa-b2bb-dd88e17551ac" />
+
+## V2 
+
+<img width="895" height="1031" alt="image" src="https://github.com/user-attachments/assets/72634d6a-3242-4304-9104-eacabc3223aa" />
+
 
 ---
 
@@ -46,7 +52,8 @@ pip install boto3 pillow
 git clone https://github.com/DevRohan33/wasabi-webp-compressor.git
 cd wasabi-webp-compressor
 pip install boto3 pillow
-python wasabi_compress_gui.py
+python script_v1.py
+python script_v2.py
 ```
 
 ---
@@ -149,20 +156,6 @@ These settings give roughly 85–90% file size reduction on large drone images w
 | ap-southeast-1 | s3.ap-southeast-1.wasabisys.com |
 | ap-southeast-2 | s3.ap-southeast-2.wasabisys.com |
 
----
-
-## How to Add Your Own Bucket Presets
-
-Open `wasabi_compress_gui.py` and find this section near the top:
-
-```python
-PRESET_BUCKETS = {
-    "your-bucket-name": "us-east-1",   # bucket name : region
-    "other":             None,
-}
-```
-
-Add your bucket name and its region. The region combo will auto-select when you pick that bucket in the UI.
 
 ---
 
