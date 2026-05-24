@@ -1,6 +1,40 @@
 """
-Requirements: pip install boto3 pillow
-Usage: python wasabi_compress_gui.py
+Wasabi S3 — Bulk WebP Image Compressor  (v1.0)
+===============================================
+Author  : Rohan Parveag  (github.com/DevRohan33)
+Website : rohanparveag.online
+
+What this tool does
+-------------------
+Connects to a Wasabi S3 bucket, walks selected folders, downloads every
+image, compresses it to WebP format, and uploads the result to a new
+folder with the suffix "-reduced". Original files are never modified.
+
+Compression pipeline
+--------------------
+1. Colour normalise — Converts palette (P) and RGBA images to RGBA, and
+                 all other modes to RGB before encoding.
+
+2. Binary search  — Starts at quality 100 and uses a binary search loop
+                 to find the highest quality level that still produces a
+                 file under the target size. Guarantees hitting the target
+                 but takes up to 7 encode iterations per image.
+
+3. WebP encode   — Output is always WebP regardless of input format.
+                 WebP typically achieves 25-35% smaller files than JPEG
+                 at equivalent visual quality.
+
+4. Sequential    — Images are processed one at a time, folder by folder.
+                 No multithreading — simple and predictable but slower
+                 on large batches.
+
+Requirements
+------------
+    pip install boto3 pillow
+
+Usage
+-----
+    python wasabi_compress_gui.py
 """
 
 from __future__ import annotations

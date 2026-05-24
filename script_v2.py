@@ -1,6 +1,53 @@
 """
-Requirements: pip install boto3 pillow
-Usage: python wasabi_compress_gui.py
+Wasabi S3 — Bulk WebP Image Compressor  (v2.0  Fast Edition)
+=============================================================
+Author  : Rohan Parveag  (github.com/DevRohan33)
+Website : rohanparveag.online
+
+What this tool does
+-------------------
+Connects to a Wasabi S3 bucket, walks selected folders, downloads every
+image, compresses it to WebP format, and uploads the result to a new
+folder with the suffix "-reduced". Original files are never modified.
+
+Compression pipeline
+--------------------
+1. Resize        — If the image is wider or taller than MAX PX, it is
+                 scaled down using Lanczos resampling before encoding.
+                 This is the single biggest speed and size win for large
+                 drone or high-resolution photos.
+
+2. Quality estimate — Divides target size by original size to produce a
+                 one-shot quality estimate instead of a full binary search.
+                 One correction pass follows if the estimate overshoots or
+                 undershoots. A binary search (max 4 iterations) is only
+                 used as a last resort for extreme cases.
+
+3. WebP encode   — Output is always WebP regardless of input format.
+                 WebP typically achieves 25-35% smaller files than JPEG
+                 at equivalent visual quality.
+
+4. Parallel      — A ThreadPoolExecutor runs N worker threads at the same
+                 time (configurable). Each thread independently downloads,
+                 compresses, and uploads one image, so network I/O and CPU
+                 work overlap instead of queuing.
+
+5. Skip existing — Before downloading, a fast HEAD request checks whether
+                 the output key already exists in the -reduced folder.
+                 If it does, the image is skipped. Safe to stop and resume
+                 a long run without reprocessing completed images.
+
+6. Stop button   — Gracefully cancels the run after in-flight images
+                 finish. All controls re-enable so settings can be changed
+                 and a new run started immediately.
+
+Requirements
+------------
+    pip install boto3 pillow
+
+Usage
+-----
+    python wasabi_compress_gui.py
 """
 
 from __future__ import annotations
@@ -33,7 +80,11 @@ WASABI_ENDPOINTS = {
     "ap-southeast-2": "https://s3.ap-southeast-2.wasabisys.com",
 }
 
-
+PRESET_BUCKETS = {
+    "towerviewerdev": "us-east-1",
+    "towerviewer":    "ap-southeast-1",
+    "other":          None,
+}
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
 
@@ -244,9 +295,41 @@ class WasabiCompressorApp(tk.Tk):
 
         # Bucket selector
         self._lbl(cred, "BUCKET NAME").grid(row=2, column=0, sticky="w", pady=3)
-        self.var_bucket = tk.StringVar()
-        self._entry(cred, self.var_bucket, width=36).grid(
-            row=2, column=1, sticky="ew", padx=(8, 0), pady=3)
+
+        bucket_col = tk.Frame(cred, bg=self.PANEL)
+        bucket_col.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=3)
+
+        self.var_bucket_choice = tk.StringVar(value="towerviewerdev")
+        self.var_bucket_choice.trace_add("write", self._on_bucket_choice)
+
+        btn_frame = tk.Frame(bucket_col, bg=self.PANEL)
+        btn_frame.pack(anchor="w")
+
+        self._bucket_radio_btns = {}
+        for name in PRESET_BUCKETS:
+            label = name if name != "other" else "other…"
+            rb = tk.Radiobutton(
+                btn_frame, text=label,
+                variable=self.var_bucket_choice, value=name,
+                font=self.f_input,
+                bg=self.PANEL, fg=self.TEXT,
+                selectcolor=self.INPUT_BG,
+                activebackground=self.PANEL,
+                activeforeground=self.ACCENT,
+                indicatoron=0,
+                relief="flat", bd=0,
+                padx=10, pady=4,
+                cursor="hand2",
+            )
+            rb.pack(side="left", padx=(0, 6))
+            self._bucket_radio_btns[name] = rb
+
+        self.var_custom_bucket = tk.StringVar()
+        self.custom_bucket_frame = tk.Frame(bucket_col, bg=self.PANEL)
+        self.custom_bucket_entry = self._entry(
+            self.custom_bucket_frame, self.var_custom_bucket, width=28)
+        self._lbl(self.custom_bucket_frame, "Custom bucket name").pack(side="left", padx=(0, 6))
+        self.custom_bucket_entry.pack(side="left")
 
         # Region
         self._lbl(cred, "REGION").grid(row=3, column=0, sticky="w", pady=3)
@@ -320,6 +403,8 @@ class WasabiCompressorApp(tk.Tk):
         self.btn_load = self._btn(cred_outer, "⟳  LOAD FOLDERS", self._on_load,
                                   bg=self.ACCENT, fg="#ffffff")
         self.btn_load.pack(side="right", padx=16, pady=(0, 12))
+
+        self._on_bucket_choice()
 
         # Folder selection
         folder_outer = tk.Frame(self, bg=self.PANEL,
@@ -415,6 +500,32 @@ class WasabiCompressorApp(tk.Tk):
                  text="Images are processed in-memory — originals are never modified",
                  font=self.f_small, bg=self.BG, fg=self.MUTED).pack(pady=(0, 10))
 
+        self._refresh_radio_styles()
+
+    #Bucket helpers
+    def _on_bucket_choice(self, *_):
+        choice = self.var_bucket_choice.get()
+        auto_region = PRESET_BUCKETS.get(choice)
+        if choice == "other":
+            self.custom_bucket_frame.pack(anchor="w", pady=(6, 0))
+            self.region_combo.configure(state="readonly")
+        else:
+            self.custom_bucket_frame.pack_forget()
+            if auto_region:
+                self.var_region.set(auto_region)
+                self.region_combo.configure(state="disabled")
+        self._refresh_radio_styles()
+
+    def _refresh_radio_styles(self):
+        choice = self.var_bucket_choice.get()
+        for name, rb in self._bucket_radio_btns.items():
+            rb.configure(bg=self.ACCENT if name == choice else self.INPUT_BG,
+                         fg="#ffffff"   if name == choice else self.MUTED)
+
+    def _resolve_bucket(self) -> str:
+        choice = self.var_bucket_choice.get()
+        return self.var_custom_bucket.get().strip() if choice == "other" else choice
+
     #Widget helpers
     def _lbl(self, parent, text):
         bg = self.PANEL
@@ -487,7 +598,7 @@ class WasabiCompressorApp(tk.Tk):
             return
         access = self.var_access.get().strip()
         secret = self.var_secret.get().strip()
-        bucket = self.var_bucket.get().strip()
+        bucket = self._resolve_bucket()
         region = self.var_region.get().strip()
 
         if not all([access, secret, bucket]):
